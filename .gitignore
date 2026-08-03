@@ -13,6 +13,9 @@ venv312/
 DATA/vectors/
 *.local.db
 
+# Raw 97MB corpus — re-download from https://github.com/d-hackmt/8hr-MARATHON
+DATA/noisy_data/
+
 # Notebooks / editors
 .ipynb_checkpoints/
 .vscode/
