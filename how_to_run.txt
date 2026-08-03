@@ -1,0 +1,123 @@
+================================================================================
+HOW TO RUN ONE FULL PIPELINE — END TO END (with a topic)
+================================================================================
+One topic = ONE question goes through the ENTIRE system:
+ingest → search → rerank → answer → (optional) evaluate.
+
+Below is the exact sequence for the example topic:
+  "How do I configure a CronJob in Kubernetes?"
+(from DATA/true_data/cronjobs.docx — a golden source)
+
+--------------------------------------------------------------------------------
+STEP 0 — PREREQUISITES (do once)
+--------------------------------------------------------------------------------
+1. Install Python 3.12 (3.14 can break FlashRank / RAGAS / sentence-transformers).
+2. Create a Qdrant Cloud cluster at https://cloud.qdrant.io and copy its
+   API KEY. You need:
+     - QDRANT_CLUSTER_ENDPOINT  (the https://...qdrant.io URL)
+     - QDRANT_API_KEY           (from the dashboard)
+3. Get keys:
+     - GROQ_API_KEY      -> https://console.groq.com
+     - GEMINI_API_KEY    -> https://aistudio.google.com/apikey
+     - (optional) LOGFIRE_TOKEN -> https://logfire.pydantic.dev
+
+--------------------------------------------------------------------------------
+STEP 1 — SET UP (do once)
+--------------------------------------------------------------------------------
+  python -m venv .venv
+  .venv\Scripts\Activate.ps1
+  pip install -r requirements.txt
+
+  copy .env.example .env
+  # then edit .env and put your REAL keys inside.
+  # NEVER commit .env (it is gitignored).
+
+--------------------------------------------------------------------------------
+STEP 2 — INGEST THE DOCUMENTS
+--------------------------------------------------------------------------------
+  python -m app.ingestion.processor DATA --wipe
+
+  What happens:
+    - Reads DATA/true_data (cronjobs.docx, pods_autoscale.html, ...)
+    - Chunks each file into ~1,500-char paragraphs
+    - Embeds chunks with Gemini (3,072 dims)
+    - Upserts into Qdrant collection "enterprise_docs"
+  Check: it prints a count of chunks upserted with no errors.
+  If it fails here -> QDRANT_API_KEY is missing/wrong.
+
+--------------------------------------------------------------------------------
+STEP 3 — START THE BACKEND
+--------------------------------------------------------------------------------
+  uvicorn app.main:app --reload --port 8000
+
+  Check: open http://localhost:8000/health  ->  {"status":"ok"}
+  (leave this terminal running.)
+
+--------------------------------------------------------------------------------
+STEP 4 — RUN YOUR TOPIC THROUGH THE PIPELINE
+--------------------------------------------------------------------------------
+  curl -X POST http://localhost:8000/query ^
+    -H "Content-Type: application/json" ^
+    -d "{\"q\":\"How do I configure a CronJob in Kubernetes?\",\"thread_id\":\"demo\"}"
+
+  What happens (you can watch each stage):
+    1. Gate 1  -> NeMo Guardrails checks for off-topic / jailbreak
+                  (this question PASSES; something like "tell me a joke" would
+                  return "Blocked by guardrails")
+    2. Planner -> "Intent: technical" -> forwards the clean query
+    3. Retriever-> Qdrant cosine search (top 15) -> FlashRank rerank (top 5)
+    4. Responder-> Portkey gateway builds the answer from the top-5 context
+    5. Response -> { answer, sources, thought_process }
+
+  The reply JSON contains:
+    answer          = the generated answer
+    sources         = the actual chunks used (with scores)
+    thought_process = the log of planner/retriever/responder decisions
+
+  NOTE: on Windows PowerShell, easier to paste this Python one-liner instead:
+    python -c "import urllib.request,json; r=urllib.request.urlopen(urllib.request.Request('http://localhost:8000/query', data=json.dumps({'q':'How do I configure a CronJob in Kubernetes?','thread_id':'demo'}).encode(), headers={'Content-Type':'application/json'})); print(json.dumps(json.loads(r.read()), indent=2))"
+
+--------------------------------------------------------------------------------
+STEP 5 — CHECK LOGFIRE (optional)
+--------------------------------------------------------------------------------
+  Open https://logfire.pydantic.dev (or run: logfire auth)
+  -> you should see a trace for each /query call showing:
+     guardrails gate, planner, retriever, rerank, responder.
+  If empty: LOGFIRE_TOKEN missing in .env, or check the "Logfire configure must
+  run before app imports" rule (already handled in app/main.py).
+
+--------------------------------------------------------------------------------
+STEP 6 — CHAT UI (optional, same pipeline through a nicer interface)
+--------------------------------------------------------------------------------
+  streamlit run ui/app.py
+  -> http://localhost:8501 -> ask the same CronJob question.
+  Use the "thread_id" box to start a new conversation (memory) anytime.
+
+--------------------------------------------------------------------------------
+STEP 7 — EVALUATE THE TOPIC (optional)
+--------------------------------------------------------------------------------
+  # a) build the golden dataset (15 Q&A + 6 guardrails tests)
+  python -m evals.golden_builder
+
+  # b) open the eval dashboard (3 tabs)
+  streamlit run evals/app.py
+     Tab 1 Ground Truth   -> review the golden Q&A
+     Tab 2 Live Pipeline  -> click "Run Live Pipeline" (hits the backend)
+                             + "Run Guardrails Eval" (6 test inputs)
+     Tab 3 Eval Metrics   -> click "Run 6 Experiments"
+                             (RAGAS: Faithfulness, AnswerRelevancy,
+                              ContextPrecision, ContextRecall, AnswerCorrectness
+                              + Jaccard Tool Correctness)
+                             Requires JUDGE_GROQ key; slow on purpose because of
+                             Groq's 6,000 TPM limit (40s/62s cooldowns built in).
+
+================================================================================
+WANT A DIFFERENT TOPIC?
+================================================================================
+1. Drop the source file(s) into DATA/true_data (or DATA/noisy_data).
+2. Re-run Step 2 (ingestion) — it picks up new files automatically.
+   (Use --wipe only if you changed CHUNK_SIZE or the collection layout.)
+3. Ask your new question in Step 4 / Step 6.
+4. For eval: re-run `python -m evals.golden_builder` to regenerate the
+   golden Q&A from the new sources, then re-run Step 7.
+================================================================================
