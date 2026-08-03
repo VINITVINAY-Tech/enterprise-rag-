@@ -28,3 +28,6 @@ Thumbs.db
 # Logs
 *.log
 logfire_*.log
+
+# SQLite checkpoints / local DBs
+*.db
