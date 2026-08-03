@@ -105,9 +105,18 @@ PARSERS = {
 
 
 def parse_file(path: Path) -> str:
-    """Dispatch a file to the right parser. Returns "" for unsupported types."""
+    """Dispatch a file to the right parser.
+
+    Returns "" for unsupported types OR when a parser throws, so a single
+    corrupt file can never crash the whole ingestion batch (the processor skips
+    empty text). The failure is logged for visibility.
+    """
     parser = PARSERS.get(path.suffix.lower())
     if parser is None:
         log.warning("Unsupported file type: %s", path)
         return ""
-    return parser(path)
+    try:
+        return parser(path)
+    except Exception as exc:  # noqa: BLE001 — per-file resilience is the point
+        log.error("Failed to parse %s (%s: %s) — skipping", path.name, type(exc).__name__, exc)
+        return ""
