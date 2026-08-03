@@ -108,6 +108,8 @@ def run(data_dir: str, wipe: bool = False) -> None:
         for i in range(0, len(chunks), batch):
             batch_chunks = chunks[i : i + batch]
             vectors = embed_texts(batch_chunks)
+            # Pace requests — Gemini free tier caps at ~100 embed calls/min.
+            time.sleep(0.8)
             payloads = [
                 {
                     "text": c,
