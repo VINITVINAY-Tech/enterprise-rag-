@@ -30,10 +30,11 @@ log = logging.getLogger("ingestion")
 
 
 def get_client() -> QdrantClient:
-    return QdrantClient(
-        url=settings.QDRANT_CLUSTER_ENDPOINT,
-        api_key=settings.QDRANT_API_KEY,
-    )
+    # Reuses the vector-store builder so the https://…:443 normalization
+    # (qdrant-client wrongly defaults port-less URLs to 6333) applies everywhere.
+    from app.services.retrieval.vector_store import build_qdrant_client
+
+    return build_qdrant_client()
 
 
 def ensure_collection(client: QdrantClient, wipe: bool) -> None:
