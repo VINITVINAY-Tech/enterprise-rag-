@@ -13,6 +13,7 @@ Folder names are mapped to metadata automatically:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import logging
 import sys
 import time
@@ -56,6 +57,12 @@ def ensure_collection(client: QdrantClient, wipe: bool) -> None:
         )
 
 
+def _point_id(source: str, chunk_index: int) -> int:
+    """Deterministic 64-bit Qdrant point id for (source, chunk_index)."""
+    digest = hashlib.sha256(f"{source}:{chunk_index}".encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big")
+
+
 def folder_metadata(rel_path: Path) -> dict:
     """Map folder structure to metadata. Top-level folder = data_type."""
     parts = rel_path.parts
@@ -89,7 +96,7 @@ def run(data_dir: str, wipe: bool = False) -> None:
         return
 
     log.info("📄 Found %d file(s) to ingest", len(files))
-    point_id = 0
+    total = 0
     total_start = time.perf_counter()
 
     for file in files:
@@ -110,11 +117,15 @@ def run(data_dir: str, wipe: bool = False) -> None:
             vectors = embed_texts(batch_chunks)
             # Pace requests — Gemini free tier caps at ~100 embed calls/min.
             time.sleep(0.8)
+            # Deterministic 64-bit id from (source, chunk_index): re-ingesting the
+            # same file overwrites its own chunks, and adding new files never
+            # collides with existing points — so ingestion is safely resumable.
+            ids = [_point_id(str(rel), i + j) for j in range(len(batch_chunks))]
             payloads = [
                 {
                     "text": c,
                     "source": str(rel),
-                    "chunk_index": point_id + j,
+                    "chunk_index": i + j,
                     **meta,
                 }
                 for j, c in enumerate(batch_chunks)
@@ -122,16 +133,16 @@ def run(data_dir: str, wipe: bool = False) -> None:
             client.upsert(
                 collection_name=settings.QDRANT_COLLECTION,
                 points=[
-                    models.PointStruct(id=point_id + j, vector=v, payload=p)
-                    for j, (v, p) in enumerate(zip(vectors, payloads))
+                    models.PointStruct(id=point_id, vector=v, payload=p)
+                    for point_id, (v, p) in zip(ids, zip(vectors, payloads))
                 ],
             )
-            point_id += len(batch_chunks)
-            log.info("      ↑ uploaded %d chunk(s) (total %d)", len(batch_chunks), point_id)
+            total += len(batch_chunks)
+            log.info("      ↑ uploaded %d chunk(s) (total %d)", len(batch_chunks), total)
 
     elapsed = time.perf_counter() - total_start
     log.info("✅ Ingestion complete: %d chunks in %.1fs → collection '%s'",
-             point_id, elapsed, settings.QDRANT_COLLECTION)
+             total, elapsed, settings.QDRANT_COLLECTION)
 
 
 def main() -> None:
