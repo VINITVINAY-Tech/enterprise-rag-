@@ -1,0 +1,45 @@
+# ─── Web / API ────────────────────────────────────────────────
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-dotenv>=1.0
+pydantic>=2.7
+pydantic-settings>=2.3
+
+# ─── LangChain / LangGraph (Agent brain) ──────────────────────
+langgraph>=0.2
+langchain>=0.3
+langchain-core>=0.3
+langchain-community>=0.3
+langchain-openai>=0.2
+langchain-groq>=0.2
+langchain-google-genai>=2.0          # Gemini embeddings (gemini-embedding-2-preview)
+
+# ─── Vector DB / Retrieval ─────────────────────────────────────
+qdrant-client>=1.9
+flashrank>=0.2.4
+
+# ─── Parsers (Ingestion engine) ───────────────────────────────
+pypdf>=4.2
+pdfplumber>=0.11
+beautifulsoup4>=4.12
+python-docx>=1.1
+python-pptx>=0.6.23
+
+# ─── Observability ────────────────────────────────────────────
+logfire>=2.5
+langsmith>=0.1
+
+# ─── LLM Gateway ──────────────────────────────────────────────
+portkey-ai>=2.0.4
+
+# ─── Guardrails ───────────────────────────────────────────────
+nemoguardrails>=0.10
+
+# ─── Evals (RAGAS 0.4.3 — see DOCS/10 & 11) ───────────────────
+ragas==0.4.3
+openai>=1.40                      # AsyncOpenAI client used to talk to Groq for RAGAS
+sentence-transformers>=3.0        # local embeddings for eval metrics
+nest-asyncio>=1.6                 # Streamlit + asyncio cooldowns
+
+# ─── UI ───────────────────────────────────────────────────────
+streamlit>=1.36
