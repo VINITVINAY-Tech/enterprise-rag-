@@ -28,7 +28,7 @@ query — a cleaned-up version of the user's question containing the key terms a
 retriever would need.
 
 Respond with JSON ONLY, in this exact shape:
-{"intent": "technical" | "conversational", "query": "<optimized query>"}
+{{"intent": "technical" | "conversational", "query": "<optimized query>"}}
 
 Conversation history:
 {history}
