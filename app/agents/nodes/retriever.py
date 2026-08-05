@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import logging
 
+import logfire
+
 from app.agents.state import AgentState
 from app.config import settings
 from app.services.retrieval.ranking_service import rerank
@@ -21,12 +23,15 @@ log = logging.getLogger(__name__)
 def retriever_node(state: AgentState) -> dict:
     query = state.get("plan_query") or state.get("user_input", "")
 
-    # Stage 1 — fast bi-encoder retrieval
-    candidates = search(query, top_k=settings.RETRIEVAL_TOP_K)
-    log.info("🔍 Retrieved %d raw candidates from Qdrant", len(candidates))
+    with logfire.span("retriever_node", query=query[:120]):
+        # Stage 1 — fast bi-encoder retrieval
+        candidates = search(query, top_k=settings.RETRIEVAL_TOP_K)
+        log.info("🔍 Retrieved %d raw candidates from Qdrant", len(candidates))
+        logfire.info("qdrant_search", candidates=len(candidates))
 
-    # Stage 2 — precise cross-encoder reranking (top-5)
-    documents = rerank(query, candidates, top_k=settings.RERANK_TOP_K)
-    log.info("⚡ Reranked to top-%d", len(documents))
+        # Stage 2 — precise cross-encoder reranking (top-5)
+        documents = rerank(query, candidates, top_k=settings.RERANK_TOP_K)
+        log.info("⚡ Reranked to top-%d", len(documents))
+        logfire.info("flashrank_rerank", reranked=len(documents))
 
     return {"documents": documents}

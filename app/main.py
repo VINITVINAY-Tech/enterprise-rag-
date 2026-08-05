@@ -83,7 +83,9 @@ def query(request: QueryRequest) -> QueryResponse:
         return QueryResponse(question="", answer="Empty question.", thought_process=[], status="empty", sources=[])
 
     # ── Gate 1: NeMo Guardrails (fast safety check) ─────────────
-    rail_fired, rail_response = guard(user_message)
+    rail_fired, rail_response = False, None
+    with logfire.span("guardrails_gate", query=user_message[:120]):
+        rail_fired, rail_response = guard(user_message)
     if rail_fired:
         return QueryResponse(
             question=request.q,
@@ -103,10 +105,11 @@ def query(request: QueryRequest) -> QueryResponse:
         "plan": [],
     }
 
-    result = get_rag_agent().invoke(
-        initial_state,
-        config={"configurable": {"thread_id": request.thread_id}},
-    )
+    with logfire.span("rag_pipeline", thread_id=request.thread_id):
+        result = get_rag_agent().invoke(
+            initial_state,
+            config={"configurable": {"thread_id": request.thread_id}},
+        )
 
     answer = result.get("answer", "")
     # Persist the thread so follow-ups ("what did I just ask?") work.

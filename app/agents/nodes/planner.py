@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import logging
 
+import logfire
+
 from app.agents.state import AgentState
 from app.gateway.client import get_langchain_llm
 
@@ -46,19 +48,21 @@ def planner_node(state: AgentState) -> dict:
     prompt = _PLANNER_PROMPT.format(history=history, user_input=state.get("user_input", ""))
 
     intent, query = "technical", state.get("user_input", "")
-    try:
-        raw = llm.invoke(prompt)
-        content = raw.content if hasattr(raw, "content") else str(raw)
-        parsed = json.loads(content.strip().strip("`").replace("json", "", 1).strip())
-        if parsed.get("intent") in ("technical", "conversational"):
-            intent = parsed["intent"]
-        query = parsed.get("query") or query
-    except Exception as exc:  # noqa: BLE001 — default to technical on parse failure
-        log.warning("Planner JSON parse failed (%s); defaulting to technical", exc)
-        intent = "technical"
-        query = state.get("user_input", "")
+    with logfire.span("planner_node", user_input=state.get("user_input", "")[:120]):
+        try:
+            raw = llm.invoke(prompt)
+            content = raw.content if hasattr(raw, "content") else str(raw)
+            parsed = json.loads(content.strip().strip("`").replace("json", "", 1).strip())
+            if parsed.get("intent") in ("technical", "conversational"):
+                intent = parsed["intent"]
+            query = parsed.get("query") or query
+        except Exception as exc:  # noqa: BLE001 — default to technical on parse failure
+            log.warning("Planner JSON parse failed (%s); defaulting to technical", exc)
+            intent = "technical"
+            query = state.get("user_input", "")
 
     log.info("🧭 Planner intent=%s query=%r", intent, query[:80])
+    logfire.info("planner_decision", intent=intent, plan_query=query[:120])
     return {
         "intent": intent,
         "plan_query": query,

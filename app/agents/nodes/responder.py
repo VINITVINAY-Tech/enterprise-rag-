@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import logging
 
+import logfire
+
 from app.agents.state import AgentState
 from app.config import settings
 from app.gateway.client import extract_cache_status, get_langchain_llm, portkey_client, _portkey_enabled
@@ -63,20 +65,21 @@ def responder_node(state: AgentState) -> dict:
     is_cache_hit = False
     answer = ""
 
-    if _portkey_enabled():
-        # Native Portkey path — can read cache status header (DOCS/09).
-        client = portkey_client()
-        resp = client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-        )
-        answer = resp.choices[0].message.content or ""
-        is_cache_hit = extract_cache_status(resp) == "HIT"
-    else:
-        # Direct Groq fallback path.
-        llm = get_langchain_llm()
-        result = llm.invoke(prompt)
-        answer = result.content if hasattr(result, "content") else str(result)
+    with logfire.span("responder_node", docs=len(documents)):
+        if _portkey_enabled():
+            # Native Portkey path — can read cache status header (DOCS/09).
+            client = portkey_client()
+            resp = client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+            )
+            answer = resp.choices[0].message.content or ""
+            is_cache_hit = extract_cache_status(resp) == "HIT"
+        else:
+            # Direct Groq fallback path.
+            llm = get_langchain_llm()
+            result = llm.invoke(prompt)
+            answer = result.content if hasattr(result, "content") else str(result)
 
     thought = list(state.get("plan") or [])
     if documents:

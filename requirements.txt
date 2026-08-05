@@ -26,7 +26,7 @@ python-docx>=1.1
 python-pptx>=0.6.23
 
 # ─── Observability ────────────────────────────────────────────
-logfire>=2.5
+logfire[fastapi]>=2.5        # [fastapi] extra → opentelemetry-instrumentation-fastapi
 langsmith>=0.1
 
 # ─── LLM Gateway ──────────────────────────────────────────────

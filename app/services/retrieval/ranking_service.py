@@ -14,13 +14,16 @@ from __future__ import annotations
 
 import logging
 
+import logfire
+
 log = logging.getLogger(__name__)
 
 # Module-level holder — stays None until first real rerank.
 _ranker = None
 
-# Matches DOCS/07: ms-marco-MiniLM-L-6-v2, ONNX-quantized, runs on CPU.
-_RANKER_MODEL = "ms-marco-MiniLM-L-6-v2"
+# Matches flashrank 0.2.10 available models (Config.model_file_map).
+# Default: ms-marco-TinyBERT-L-2-v2 — fast, small, runs on CPU.
+_RANKER_MODEL = "ms-marco-TinyBERT-L-2-v2"
 
 
 def get_ranker():
@@ -46,6 +49,12 @@ def rerank(query: str, documents: list[dict], top_k: int = 5) -> list[dict]:
     if not documents:
         return []
 
+    with logfire.span("flashrank_rerank", model=_RANKER_MODEL, candidates=len(documents)):
+        return _rerank_inner(query, documents, top_k)
+
+
+def _rerank_inner(query: str, documents: list[dict], top_k: int) -> list[dict]:
+    """Rerank implementation — wrapped by the logfire.span above."""
     try:
         ranker = get_ranker()
         passages = [
@@ -56,15 +65,21 @@ def rerank(query: str, documents: list[dict], top_k: int = 5) -> list[dict]:
 
         request = RerankRequest(query=query, passages=passages)
         ranked = ranker.rerank(request)
-        # FlashRank returns list of passages each with a `score` attribute and
-        # the original `meta` dict we stashed.
+        # FlashRank returns the SAME passage dicts we passed in, each with a
+        # `score` key added. (Old versions returned objects with `.meta` /
+        # `.score` attributes, so handle both shapes.)
         results = []
         for item in (ranked or [])[:top_k]:
-            meta = getattr(item, "meta", None) or {}
+            if isinstance(item, dict):
+                meta = item.get("meta") or {}
+                score = item.get("score", 0.0)
+            else:
+                meta = getattr(item, "meta", None) or {}
+                score = getattr(item, "score", 0.0)
             results.append(
                 {
                     **meta,
-                    "score": float(getattr(item, "score", 0.0) or 0.0),
+                    "score": float(score or 0.0),
                     "rerank_score": True,
                 }
             )
