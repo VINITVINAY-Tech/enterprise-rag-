@@ -45,12 +45,13 @@ def search(query: str, top_k: int | None = None) -> list[dict]:
     client = get_client()
     vector = embed_query(query)
 
-    hits = client.search(
+    result = client.query_points(
         collection_name=settings.QDRANT_COLLECTION,
-        query_vector=vector,
+        query=vector,
         limit=top_k,
         with_payload=True,
     )
+    hits = result.points
 
     results = []
     for hit in hits:
